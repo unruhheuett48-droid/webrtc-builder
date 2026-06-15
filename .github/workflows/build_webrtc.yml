@@ -10,7 +10,6 @@ jobs:
       - name: Setup Android NDK
         run: |
           echo "Using pre-installed NDK on GitHub Actions"
-          ls -l $ANDROID_NDK_HOME
 
       - name: Setup Meson and Ninja
         run: |
@@ -22,20 +21,40 @@ jobs:
         run: |
           git clone https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing.git
           cd webrtc-audio-processing
-          git checkout v1.3 || true # Use a stable tag if possible, or leave it to master
+          git checkout v1.3 || true
+
+      - name: Create AR Wrapper for Thick Archives
+        run: |
+          cat <<'EOF' > /tmp/my-ar.sh
+          #!/bin/bash
+          # Remove the 'T' (Thin) flag from ar arguments to force Thick archives
+          args=()
+          for arg in "$@"; do
+            if [[ "$arg" == *"T"* ]] && [[ "$arg" == *"c"* ]] && [[ "$arg" == *"s"* ]]; then
+              arg="${arg//T/}"
+            fi
+            args+=("$arg")
+          done
+          /usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar "${args[@]}"
+          EOF
+          chmod +x /tmp/my-ar.sh
 
       - name: Create Meson Cross File
         run: |
           cd webrtc-audio-processing
+          # Replace NDK path with the default GitHub Actions NDK path for v27
+          NDK_PATH="/usr/local/lib/android/sdk/ndk/27.2.12479018"
+          TOOLCHAIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64"
+          
           cat <<EOF > android-armv7.txt
           [constants]
-          ndk_path = '${ANDROID_NDK_HOME}'
-          toolchain = ndk_path + '/toolchains/llvm/prebuilt/linux-x86_64'
+          ndk_path = '${NDK_PATH}'
+          toolchain = '${TOOLCHAIN}'
 
           [binaries]
           c = toolchain + '/bin/armv7a-linux-androideabi29-clang'
           cpp = toolchain + '/bin/armv7a-linux-androideabi29-clang++'
-          ar = toolchain + '/bin/llvm-ar'
+          ar = '/tmp/my-ar.sh'
           strip = toolchain + '/bin/llvm-strip'
           pkgconfig = 'pkg-config'
 
@@ -61,5 +80,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webrtc-armeabi-v7a-libs
+          name: webrtc-armeabi-v7a-libs-thick
           path: output_libs/*.a
