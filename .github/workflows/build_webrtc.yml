@@ -1,0 +1,65 @@
+name: Build WebRTC for Android 32-bit (armeabi-v7a)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Android NDK
+        run: |
+          echo "Using pre-installed NDK on GitHub Actions"
+          ls -l $ANDROID_NDK_HOME
+
+      - name: Setup Meson and Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip ninja-build pkg-config
+          pip3 install meson
+
+      - name: Clone webrtc-audio-processing
+        run: |
+          git clone https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing.git
+          cd webrtc-audio-processing
+          git checkout v1.3 || true # Use a stable tag if possible, or leave it to master
+
+      - name: Create Meson Cross File
+        run: |
+          cd webrtc-audio-processing
+          cat <<EOF > android-armv7.txt
+          [constants]
+          ndk_path = '${ANDROID_NDK_HOME}'
+          toolchain = ndk_path + '/toolchains/llvm/prebuilt/linux-x86_64'
+
+          [binaries]
+          c = toolchain + '/bin/armv7a-linux-androideabi29-clang'
+          cpp = toolchain + '/bin/armv7a-linux-androideabi29-clang++'
+          ar = toolchain + '/bin/llvm-ar'
+          strip = toolchain + '/bin/llvm-strip'
+          pkgconfig = 'pkg-config'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'arm'
+          cpu = 'armv7a'
+          endian = 'little'
+          EOF
+
+      - name: Build with Meson and Ninja
+        run: |
+          cd webrtc-audio-processing
+          meson setup build --cross-file android-armv7.txt --default-library=static
+          ninja -C build
+
+      - name: Collect Static Libraries
+        run: |
+          mkdir -p output_libs
+          find webrtc-audio-processing/build -name "*.a" -exec cp {} output_libs/ \;
+          ls -l output_libs/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webrtc-armeabi-v7a-libs
+          path: output_libs/*.a
