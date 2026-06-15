@@ -1,4 +1,4 @@
-name: Build WebRTC for Android 32-bit (armeabi-v7a)
+name: Build WebRTC and FFTW3 for Android 32-bit (armeabi-v7a)
 
 on:
   workflow_dispatch:
@@ -11,11 +11,25 @@ jobs:
         run: |
           echo "Using pre-installed NDK at $ANDROID_NDK_HOME"
 
-      - name: Setup Meson and Ninja
+      - name: Setup Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip ninja-build pkg-config
+          sudo apt-get install -y python3-pip ninja-build pkg-config build-essential
           pip3 install meson
+
+      - name: Compile FFTW3 for Android 32-bit
+        run: |
+          wget http://www.fftw.org/fftw-3.3.10.tar.gz
+          tar -xzf fftw-3.3.10.tar.gz
+          cd fftw-3.3.10
+          export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          export CC="armv7a-linux-androideabi29-clang"
+          export AR="llvm-ar"
+          export RANLIB="llvm-ranlib"
+          ./configure --host=arm-linux-androideabi --enable-float --enable-neon --disable-shared --enable-static
+          make -j4
+          mkdir -p ../output_libs
+          cp .libs/libfftw3f.a ../output_libs/
 
       - name: Clone webrtc-audio-processing
         run: |
@@ -27,7 +41,6 @@ jobs:
         run: |
           cat <<EOF > /tmp/my-ar.sh
           #!/bin/bash
-          # Remove the 'T' (Thin) flag from ar arguments to force Thick archives
           args=()
           for arg in "\$@"; do
             if [[ "\$arg" == *"T"* ]] && [[ "\$arg" == *"c"* ]] && [[ "\$arg" == *"s"* ]]; then
@@ -61,7 +74,7 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Build with Meson and Ninja
+      - name: Build WebRTC with Meson
         run: |
           cd webrtc-audio-processing
           meson setup build --cross-file android-armv7.txt --default-library=static
@@ -69,12 +82,11 @@ jobs:
 
       - name: Collect Static Libraries
         run: |
-          mkdir -p output_libs
           find webrtc-audio-processing/build -name "*.a" -exec cp {} output_libs/ \;
           ls -l output_libs/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webrtc-armeabi-v7a-libs-thick
+          name: all-armeabi-v7a-libs
           path: output_libs/*.a
